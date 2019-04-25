@@ -2228,7 +2228,7 @@ switch (subscription.subscriberMethod.threadMode) {
    mainThreadPoster = mainThreadSupport != null ? mainThreadSupport.createPoster(this) : null;
   ```
 
-  中有效的值为`AndroidHandlerMainThreadSupport`中public Poster createPoster(EventBus eventBus)的返回值：`new HandlerPoster(eventBus, looper, 10)`看看这个`HandlerPoster`是什么东西.
+  中有效的值为`AndroidHandlerMainThreadSupport`中`public Poster createPoster(EventBus eventBus)`的返回值：`new HandlerPoster(eventBus, looper, 10)`看看这个`HandlerPoster`是什么东西.
 
   ###### HandlerPoster
   
@@ -2494,55 +2494,21 @@ if (!sendMessage(obtainMessage())) {
             }
   ```
   
-  循环中，首先从队列`queue`中出队一个元素，然后判断其是否为`null`，如果不为`null`，则使用`synchronized`锁锁定当前对象，再次执行一次出队操作，注意这里之所以再次执行出队操作，是因为第一次出队的时候没有用锁，那么如果出队结果不为`null`，那么皆大欢喜，如果出队结果为`null`呢？一定说明`queue`中没有元素了吗？答案是否定的，因为多线程并发时也有可能导致队中内容不为`null`但是出队结果为`null`，因为`queue`是一个`PendingPostQueue`的对象，我们再看一眼`PendingPostQueue`类的源码：
+  循环中，首先从队列`queue`中出队一个元素，然后判断其是否为`null`，如果不为`null`，则使用`synchronized`锁锁定当前对象，再次执行一次出队操作。我来解释一下这里为什么判断了两次`queue.poll()`:
   
-  ```java
-  final class PendingPostQueue {
-      private PendingPost head;
-      private PendingPost tail;
+  解释一下：
   
-      synchronized void enqueue(PendingPost pendingPost) {
-          if (pendingPost == null) {
-              throw new NullPointerException("null cannot be enqueued");
-          }
-          if (tail != null) {
-              tail.next = pendingPost;
-              tail = pendingPost;
-          } else if (head == null) {
-              head = tail = pendingPost;
-          } else {
-              throw new IllegalStateException("Head present, but no tail");
-          }
-          notifyAll();
-      }
+  - 第一次判断`queue.poll()`是否为`null`
+      第一次判断是在`Synchronized`同步代码块外进行判断，是为了在`queue.poll()`不为`null`的情况下，避免进入同步代码块，**提升效率**。
   
-      synchronized PendingPost poll() {
-          PendingPost pendingPost = head;
-          if (head != null) {
-              head = head.next;
-              if (head == null) {
-                  tail = null;
-              }
-          }
-          return pendingPost;
-      }
-  
-      synchronized PendingPost poll(int maxMillisToWait) throws InterruptedException {
-          if (head == null) {
-              wait(maxMillisToWait);
-          }
-          return poll();
-    }
-  
-}
-  ```
+  - 第二次判断`queue.poll()`是否为`null`
+      第二次判断是为了避免以下情况的发生。 
+      (1)假设：线程A已经经过第一次判断，判断`pendingPost == null`，准备进入同步代码块. 
+      (2)此时线程B获得时间片，去执行`enqueue（）`操作成功入队。
+      (3)此时，线程A再次获得时间片，由于刚刚经过第一次判断`pendingPost == null`(不会重复判断)，进入同步代码块再次判`null`，然后拿到不为`null`的`pendingPost`。如果不加第二次判断的话，线程A直到下一次被调用`handleMessage（）`才有可能会处理刚才线程B加入的事件，这样不利于事件的快速传递，所以第二次判断是很有必要的。
 
-  看到这里可能有的读者就觉得很奇怪了，这里的出队入队方法不是都加了锁了吗那么`PendingPostQueue`不应该是线程安全的吗，怎么可能会由于多线程并发导致出队错误？没错，`PendingPostQueue`的出队入队都是线程安全的，可是执行`PendingPost pendingPost = queue.poll();的HandlerPoster.handleMessage(Message msg)`是线程安全的吗？答案是否定的，那么如果。。。。。这个还没搞懂，后面详细研究...
-  
-  反正先暂时知道作者判`null`之后再加锁是为了提高访问效率的同时保证线程安全。
-  
   ```java
-  synchronized (this) {
+synchronized (this) {
     // Check again, this time in synchronized
     pendingPost = queue.poll();
     if (pendingPost == null) {
@@ -2553,9 +2519,9 @@ if (!sendMessage(obtainMessage())) {
   ```
 
   这里加锁之后如果出队结果还是`null`，那么就说明队列中真的没有元素了，将`handlerActive`置为`false`然后`return`。到这里`handlerActive`的作用就显而易见了，其就是标记队列是否为空的，初始时队列为空，`handlerActive`为`false`，顺利入队后队列一定不为空了，将`handlerActive`置为`true`，现在出队直到队列为空时再次将`handlerActive`置为`false`，这样仅仅通过`handlerActive`就可判断队列是否为空，而不用访问队列再判空。
-  
+
   那么如果队列出队的结果不为`null`，就会执行：
-  
+
   ```java
   eventBus.invokeSubscriber(pendingPost);
   long timeInMethod = SystemClock.uptimeMillis() - started;
@@ -2571,9 +2537,9 @@ if (!sendMessage(obtainMessage())) {
   首先执行`eventBus.invokeSubscriber(pendingPost)`， [invokeSubscriber](#invokeSubscriber)方法我在上面已经解析过，作用就是执行订阅方法，将事件传递过去，这样订阅方法就能收到订阅内容了。
 
   `eventBus.invokeSubscriber(pendingPost)`之后下一行计算了本方法迄今为止的耗时，如果已经超过了`maxMillisInsideHandleMessage`，那么调用`sendMessage(obtainMessage())`代表再次尝试，如果该方法返回`false`，则抛出异常，否则将`rescheduled` 置位`true`，并`return`。
-  
+
   那么迄今为止本方法的耗时没有超过`maxMillisInsideHandleMessage`，则执行：
-  
+
   ```java
   @Override
       public void handleMessage(Message msg) {
@@ -2607,10 +2573,8 @@ if (!sendMessage(obtainMessage())) {
           }
       }
   ```
-  
+
   最后的`finally`语句中还将 `rescheduled`赋值给了`handlerActive` 。
-
-
 
 至于`postToSubscription(Subscription subscription, Object event, boolean isMainThread)`中其他几个`Switch`的情况和上述类似这里不做过多解释。
 
@@ -2656,7 +2620,7 @@ public void postSticky(Object event) {
  }
 ```
 
-所以它是一个线程安全的HashMap，但是这里为什么还要对它加锁呢？想不通。
+可能有的同学会有疑问，`ConcurrentHashMap`它是一个线程安全的类啊，这里为什么还要对它加锁呢？是的，`ConcurrentHashMap`是一个线程安全的类，但是他的线程安全指的是其内部的方法是原子的、线程安全的，但是它不能保证其内部方法的复合操作也是线程安全的。也就是说它能保证`put()`操作是线程安全的，但是不能保证在进入`postSticky()`之后执行`put()`操作之前没有其他线程对`stickyEvents`执行其他操作，所以这里对`stickyEvents`加了一个`synchronized`锁。
 
 然后将`<事件对应的类型-事件>`加入了该`Map`中，然后执行`Post()`方法，之后的逻辑和上面解析的`post()`的执行一样。
 
@@ -2735,3 +2699,4 @@ typesBySubscriber.remove(subscriber);
 ![EventBus](https://ws3.sinaimg.cn/large/006tNc79gy1g2ezwvvinzj31g90u0b2a.jpg)
 
 如果上图看不清，可下载[原图](https://github.com/DmrfCoder/AndroidSourceCodeAnalysis/blob/master/EventBus/EventBus-Xmind/EventBus.png)或[源文件](https://github.com/DmrfCoder/AndroidSourceCodeAnalysis/blob/master/EventBus/EventBus-Xmind/EventBus.xmind)查看。
+
