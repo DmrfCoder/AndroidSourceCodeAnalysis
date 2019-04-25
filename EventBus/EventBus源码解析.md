@@ -1,7 +1,3 @@
-
-
-
-
 # EventBus源码解析
 
 `EventBus`是一个基于`订阅者-发布者`模式框架，该模式定义了一种一对多的依赖关系，让多个订阅者对象同时监听一个对象，通过这种方式对订阅者和主题发布者进行充分解耦，主要用于`Android`组件间相互通信、线程间互相通信及其他线程与`UI`线程之间互相通信等。代替了传统的`Handler`、`BroadCastReceiver`、`Interface`回调等通信方式，相比之下`EventBus`的优点是代码简洁，使用简单，并将事件发布和订阅充分解耦。
@@ -1591,9 +1587,9 @@ for (Map.Entry<Class<?>, Object> entry : entries) {
 
 ![register分支](https://ws4.sinaimg.cn/large/006tNc79gy1g2esrbr1j7j31vr0u04qp.jpg)
 
-如果上图看不清，可[下载原图查看]()
+如果上图看不清，可[下载原图查看](https://github.com/DmrfCoder/AndroidSourceCodeAnalysis/blob/master/EventBus/EventBus-Xmind/register%E5%88%86%E6%94%AF.png)。
 
-## Post(Event event)
+## post(Event event)
 
 然后我们分析一下post()方法的执行逻辑：
 
@@ -2618,7 +2614,7 @@ if (!sendMessage(obtainMessage())) {
 
 至于`postToSubscription(Subscription subscription, Object event, boolean isMainThread)`中其他几个`Switch`的情况和上述类似这里不做过多解释。
 
-### Post(Event event总结)
+### post(Event event总结)
 
 好，现在我们总结一下`post()`方法的逻辑：
 
@@ -2631,6 +2627,8 @@ if (!sendMessage(obtainMessage())) {
 对应逻辑的思维导图如下：
 
 ![post分支](https://ws1.sinaimg.cn/large/006tNc79gy1g2ezrt1emnj32lb0u07q2.jpg)
+
+如果上图看不清，可[下载原图查看](https://github.com/DmrfCoder/AndroidSourceCodeAnalysis/blob/master/EventBus/EventBus-Xmind/post%E5%88%86%E6%94%AF.png)。
 
 ## postSticky(Event event)
 
@@ -2735,3 +2733,5 @@ typesBySubscriber.remove(subscriber);
 这里给出EventBus的整个思维导图：
 
 ![EventBus](https://ws3.sinaimg.cn/large/006tNc79gy1g2ezwvvinzj31g90u0b2a.jpg)
+
+如果上图看不清，可下载[原图](https://github.com/DmrfCoder/AndroidSourceCodeAnalysis/blob/master/EventBus/EventBus-Xmind/EventBus.png)或[源文件](https://github.com/DmrfCoder/AndroidSourceCodeAnalysis/blob/master/EventBus/EventBus-Xmind/EventBus.xmind)查看。
